@@ -84,8 +84,13 @@ void setup() {
 void loop() {
   // Turn on and off stealth mode.
   if (digitalRead(BTN_PIN) == LOW) {
-    if (!buttonPress)
-      stealth = !stealth;
+    if (!buttonPress) {
+      noTone(MUSIC_PIN);
+      if (serialMode)
+        serialMode = false;
+      else
+        stealth = !stealth;
+    }
     buttonPress = true;
   } else
     buttonPress = false;
@@ -112,14 +117,15 @@ void loop() {
       delay(100);
       noTone(MUSIC_PIN);
     }
+
     // Check for serial input.
-    while (Serial.available()) {
-      serial = Serial.read(); // Just keep reading single bytes to get the latest.
+    while (Serial.available()) { // Just keep reading single bytes to get the latest.
+      serial = Serial.read();
       if (serial == -1) // In case there is no byte somehow.
         serial = 0;
-      if (serial & 1 == 0) {
-        serialMode = serial & 2 == 2;
-        builtinLED = serial & 4 == 4;
+      if ((serial & 1) == 0) {
+        serialMode = (serial & 2) == 2;
+        builtinLED = (serial & 4) == 4;
         // Note to Self: The >> operator in Arduino is an unsigned right shift.
         buzzerNote = serial >> 3;
         if (!serialMode || buzzerNote == 0)
@@ -137,11 +143,11 @@ void loop() {
     if (serialMode) {
       digitalWrite(LED_BUILTIN, builtinLED);
       analogWrite(PLED_OUT, pLEDValue);
-      
     } else {
       digitalWrite(LED_BUILTIN, !stealth); // Stealth Indicator
       digitalWrite(PLED_OUT, !stealth);
     }
+
     // Check for power off.
     powerOn = analogRead(PLED_IN) * (5.0 / 1023.0) > FIVE_MARGIN;
     if (!powerOn)
