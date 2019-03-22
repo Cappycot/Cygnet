@@ -14,9 +14,14 @@ const int MUSIC_PIN = 9;
 const int PLED_OUT = 10;
 const int PWR_PIN = 8;
 
+// Voltage Constants
 const float ZERO_MARGIN = 0.1;
 const float FIVE_MARGIN = 5.0 - ZERO_MARGIN;
 const float SPKR_MARGIN = 4.0;
+
+// Time Constants
+const int PRESS_TIME = 200;
+const int TICK_DELAY = 1;
 
 const float freq[3][12] = {{130.81, 138.59, 146.83, 155.56, 164.81, 174.61, 185, 196, 207.65, 220, 233.08, 246.94},
 {261.63, 277.18, 293.66, 311.13, 329.63, 349.23, 369.99, 392, 415.30, 440, 466.16, 493.88},
@@ -31,86 +36,59 @@ const int musicNotes[] = {25, -1,
 18};
 const int numNotes = sizeof(musicNotes) / sizeof(int);
 
-bool powerOn = false;
-bool stealth = false;
-
-byte serial = 0; // LED overrides
-// Bit 0: LED override mode off (0) or on (1)
-// Bit 1: Power LED off (0) or on (1)
-// Bit 2: Arduino AREF LED off (0) or on (1)
+// Runtime Variables
+bool buttonPress = false; // If the stealth button is pressed.
+bool powerOn = false; // Indicated by motherboard sending power through pLED.
+bool stealth = false; // Disables pin 13 and power LEDs.
+int serial = 0;
+// Serial Bits:
+// Bit 0: 0 to modify serial parameters, 1 to modify power LED value
+// Bit 1: LED override (serial) mode off (0) or on (1)
+// Bit 2: Arduino pin 13 LED off (0) or on (1)
 // Bits 3-7: Buzzer frequency (all 0 is no frequency)
+bool serialMode = false;
+bool builtinLED = true;
+int buzzerNote = 0;
+int pLEDValue = 255;
 
+// Play the tune.
+void play() {
+  noTone(MUSIC_PIN);
+  for (int i = 0; i < numNotes; i++) {
+    int note = musicNotes[i];
+    if (note != -1)
+      tone(MUSIC_PIN, freq[note / 12][note % 12], noteTime);
+    else
+      noTone(MUSIC_PIN);
+    delay(noteTime);
+  }
+  noTone(MUSIC_PIN);
+}
+
+// Run once.
 void setup() {
-  // put your setup code here, to run once:
-  // Serial.begin(115200);
+  Serial.begin(115200);
   pinMode(BTN_PIN, INPUT);
   pinMode(BTN_PWR, OUTPUT);
-  digitalWrite(BTN_PWR, HIGH);
+  digitalWrite(BTN_PWR, HIGH); // Substitute for 5V.
   pinMode(MUSIC_PIN, OUTPUT);
   pinMode(PLED_OUT, OUTPUT);
   pinMode(PWR_PIN, OUTPUT);
   digitalWrite(PWR_PIN, LOW);
   pinMode(LED_BUILTIN, OUTPUT);
+  play();
+  while (digitalRead(TI_REC) == LOW); // Wait for voice recognizer chip to start up.
 }
 
-float lastVoltage = -1.0;
-int thething = 0;
-float pLEDDiff;
-int sensorValue;
-float voltage;
-float voltage2;
-String thestring;
-
+// Run continuously.
 void loop() {
-  // put your main code here, to run repeatedly:
-  delay(10);
-  /*if (Serial.available()) {
-    thestring = Serial.readString();
-    if (thestring.compareTo("on") == 0) {
-      Serial.println("Turning on.");
-      digitalWrite(PWR_PIN, HIGH);
-      delay(1000);
-      digitalWrite(PWR_PIN, LOW);
-      Serial.println("Done.");
-    } else if (thestring.compareTo("off") == 0) {
-      Serial.println("Turning off.");
-      digitalWrite(PWR_PIN, HIGH);
-      delay(1000);
-      digitalWrite(PWR_PIN, LOW);
-      Serial.println("Done.");
-    }
-  }//*/
-
-  //if (digitalRead(BTN_PIN) == LOW)
-    //Serial.println("Button pressed.");
-
-  powerOn = analogRead(PLED_IN) * (5.0 / 1023.0) > FIVE_MARGIN;
-  /* Serial.println("V (A0)");
-  sensorValue = analogRead(PLED_NEG);
-  voltage2 = sensorValue * (5.0 / 1023.0);
-  // Serial.print(voltage2);
-  // Serial.println("V (A1)");
-  pLEDDiff = abs(voltage - voltage2);
-  // Serial.print("A0 - A1 = ");
-  // Serial.println(pLEDDiff);
-  if (pLEDDiff < 1.0)
-    powerOn = false;
-  else if (pLEDDiff > 4.0)
-    powerOn = true;*/
-
-  if (analogRead(SPEAKER_IN) * (5.0 / 1023.0) < ZERO_MARGIN) {
-    if (analogRead(SPEAKER_5V) * (5.0 / 1023.0) > SPKR_MARGIN) {
-      for (int i = 0; i < numNotes; i++) {
-        int note = musicNotes[i];
-        if (note != -1)
-          tone(MUSIC_PIN, freq[note / 12][note % 12], noteTime);
-        else
-          noTone(MUSIC_PIN);
-        delay(noteTime);
-      }
-      noTone(MUSIC_PIN);
-    }
-  }//*/
+  // Turn on and off stealth mode.
+  if (digitalRead(BTN_PIN) == LOW) {
+    if (!buttonPress)
+      stealth = !stealth;
+    buttonPress = true;
+  } else
+    buttonPress = false;
 
   // Map case power switch to motherboard power switch.
   if (digitalRead(SW_PIN))
@@ -118,14 +96,14 @@ void loop() {
   else
     digitalWrite(PWR_PIN, HIGH);
 
-  if (digitalRead(TI_REC) == LOW) {
-    if (!powerOn) {
-      //Serial.println("Powering on...");
-      digitalWrite(PWR_PIN, HIGH);
-      delay(500);
-      digitalWrite(PWR_PIN, LOW);
-    } else {
-      //Serial.println("No.");
+  // Performs more checks if the power is on.
+  if (powerOn) {
+    // Check for signal intended for speaker.
+    if (analogRead(SPEAKER_IN) * (5.0 / 1023.0) < ZERO_MARGIN && analogRead(SPEAKER_5V) * (5.0 / 1023.0) > SPKR_MARGIN)
+        play();
+    // Check for voice command recognition.
+    if (digitalRead(TI_REC) == LOW && !serialMode) {
+      noTone(MUSIC_PIN);
       tone(MUSIC_PIN, freq[1][9], 100);
       delay(100);
       tone(MUSIC_PIN, freq[2][0], 100);
@@ -134,54 +112,53 @@ void loop() {
       delay(100);
       noTone(MUSIC_PIN);
     }
+    // Check for serial input.
+    while (Serial.available()) {
+      serial = Serial.read(); // Just keep reading single bytes to get the latest.
+      if (serial == -1) // In case there is no byte somehow.
+        serial = 0;
+      if (serial & 1 == 0) {
+        serialMode = serial & 2 == 2;
+        builtinLED = serial & 4 == 4;
+        // Note to Self: The >> operator in Arduino is an unsigned right shift.
+        buzzerNote = serial >> 3;
+        if (!serialMode || buzzerNote == 0)
+          noTone(MUSIC_PIN);
+        else
+          tone(MUSIC_PIN, freq[buzzerNote / 12][buzzerNote % 12]);
+      } else {
+        pLEDValue = serial & 254;
+        if (pLEDValue >= 254)
+          pLEDValue = 255;
+      }
+    }
+    
+    // Check for LED override mode.
+    if (serialMode) {
+      digitalWrite(LED_BUILTIN, builtinLED);
+      analogWrite(PLED_OUT, pLEDValue);
+      
+    } else {
+      digitalWrite(LED_BUILTIN, !stealth); // Stealth Indicator
+      digitalWrite(PLED_OUT, !stealth);
+    }
+    // Check for power off.
+    powerOn = analogRead(PLED_IN) * (5.0 / 1023.0) > FIVE_MARGIN;
+    if (!powerOn)
+      digitalWrite(PLED_OUT, LOW);
+
+  // Perform less checks if the power is off.
+  } else {
+    digitalWrite(LED_BUILTIN, !stealth); // Stealth Indicator
+    // Check for voice command recognition.
+    if (digitalRead(TI_REC) == LOW) {
+      digitalWrite(PWR_PIN, HIGH);
+      delay(PRESS_TIME);
+      digitalWrite(PWR_PIN, LOW);
+    }
+    // Check for power on.
+    powerOn = analogRead(PLED_IN) * (5.0 / 1023.0) > FIVE_MARGIN;
   }
 
-  /*sensorValue = analogRead(SPEAKER_IN);
-  voltage = sensorValue * (5.0 / 1023.0);
-  Serial.print(voltage);
-  if (voltage < 1) {
-    Serial.print(" < 1");
-    sensorValue = analogRead(SPEAKER_5V);
-    voltage = sensorValue * (5.0 / 1023.0);
-    if (voltage > 4) {
-      Serial.print(" music triggered");
-      delay(5000);
-    }
-  } else if (voltage < 2)
-    Serial.print(" < 2");
-  else if (voltage < 3)
-    Serial.print(" < 3");
-  else if (voltage < 4)
-    Serial.print(" < 4");
-  else if (voltage < 5)
-    Serial.print(" < 5");
-  else
-    Serial.print(" = 5+");
-  // Serial.println(digitalRead(7));
-  sensorValue = analogRead(SPEAKER_5V);
-  voltage = sensorValue * (5.0 / 1023.0);
-  Serial.print(", ");
-  Serial.print(voltage);
-  if (voltage < 1)
-    Serial.println(" < 1");
-  else if (voltage < 2)
-    Serial.println(" < 2");
-  else if (voltage < 3)
-    Serial.println(" < 3");
-  else if (voltage < 4)
-    Serial.println(" < 4");
-  else if (voltage < 5)
-    Serial.println(" < 5");
-  else
-    Serial.println(" = 5+");//*/
-    
-  // Check for LED override mode.
-  if (serial & 1 != 0) {
-    // Note to Self: The >> operator in Arduino is an unsigned right shift.
-    digitalWrite(PLED_OUT, serial >> 1 & 1); // Easy to determine 0 or 1.
-    digitalWrite(LED_BUILTIN, serial >> 2 & 1);
-  } else {
-    digitalWrite(PLED_OUT, powerOn && !stealth);
-    digitalWrite(LED_BUILTIN, powerOn && !stealth);
-  }
+  delay(TICK_DELAY);
 }
