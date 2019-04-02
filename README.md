@@ -2,7 +2,7 @@
 ----
 # Cygnet
 
-Source code used in making my new desktop computer.
+Source code used in making [my new desktop computer](https://pcpartpicker.com/b/CDsZxr).
 
 ![Cygnet's Rigging](https://cdn.pcpartpicker.com/static/forever/images/userbuild/250412.938d1f7c93186aa8c8f2e48df6a94192.1600.jpg "The Rig")
 ----
