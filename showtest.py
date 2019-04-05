@@ -17,7 +17,7 @@ slowlimit = 100
 subdiv = 0.5
 tick = 0.005
 
-use_serial = False
+use_serial = True
 baud = 115200
 port = "COM4"
 
@@ -132,6 +132,7 @@ print("{} iCUE devices found.".format(icue.CorsairGetDeviceCount()))
 
 cmdr = None
 polaris = None
+stand = None
 void = None
 for i in range(icue.CorsairGetDeviceCount()):
     device = icue.CorsairGetLedPositionsByDeviceIndex(i)
@@ -145,9 +146,11 @@ for i in range(icue.CorsairGetDeviceCount()):
         cmdr = device
     elif device.numberOfLeds == 15:
         polaris = device
+    elif device.numberOfLeds == 9:
+        stand = device
     elif device.numberOfLeds == 2:
         void = device
-if cmdr is None or polaris is None or void is None:
+if cmdr is None or polaris is None or stand is None:
     print("Some device wasn't found.")
     exit(1)
 
@@ -170,11 +173,21 @@ for i in range(polaris_amt):
     polaris_rgb[i] = [0, 0, 0]
 polaris_pos.sort()
 
-# void_amt = void.numberOfLeds
-# void_led = (CorsairLedColor * void_amt)()
-# void_rgb = [[0, 0, 0]] * void_amt
+stand_amt = stand.numberOfLeds
+stand_led = (CorsairLedColor * stand_amt)()
+stand_pos = []
+stand_rgb = [[0, 0, 0]] * stand_amt
+for i in range(stand_amt):
+    stand_pos.append(stand.pLedPosition[i].ledId)
+    stand_rgb[i] = [0, 0, 0]
+stand_pos.sort()
+
+void_amt = void.numberOfLeds
+void_led = (CorsairLedColor * void_amt)()
+void_rgb = [0, 0, 0]
+void_prev = [0, 0, 0]
 # for i in range(void_amt):
-#     void_rgb[i] = [0, 0, 0]
+# void_rgb[i] = [0, 0, 0]
 
 # Request lighting control.
 icue.CorsairRequestControl(0)
@@ -292,6 +305,7 @@ while True:
             small_time = pos + small_rate
             small_zoom += small_incr
 
+        # Trigger Various Events
         while current_event < num_events and pos >= events[current_event]["_time"]:
             event = events[current_event]
             current_event += 1
@@ -325,6 +339,7 @@ while True:
             elif event_type == 14:  # BPM Change
                 print("We can't handle that shit here.")
 
+        # Create Note Slashes
         while current_note < num_notes and pos >= notes[current_note]["_time"]:
             note = notes[current_note]
             current_note += 1
@@ -344,6 +359,10 @@ while True:
                 else:
                     cmdr_rgb[i][2] = 255
 
+        # Reset Top Strip
+        for i in range(126, cmdr_amt):
+            cmdr_rgb[i][0] = cmdr_rgb[i][2] = 0
+
         # for ring in rings:
         for r in range(0, 3):
             ring = rings[r]
@@ -358,6 +377,7 @@ while True:
                 if r > 0:
                     for i in range(126, cmdr_amt):
                         cmdr_rgb[i][0] = max(cmdr_rgb[i][0], ring.light)
+                    void_rgb[0] = max(void_rgb[0], ring.light)
                 for i in range(16):
                     cmdr_rgb[ring.start + i][2] = 0
                     if i < 4:
@@ -379,6 +399,7 @@ while True:
                 if r > 0:
                     for i in range(126, cmdr_amt):
                         cmdr_rgb[i][2] = max(cmdr_rgb[i][2], ring.light)
+                    void_rgb[2] = max(void_rgb[2], ring.light)
                 for i in range(16):
                     cmdr_rgb[ring.start + i][0] = 0
                     if i < 4:
@@ -426,6 +447,7 @@ while True:
                 if strip.light < 0:
                     strip.light = 0
 
+        # Hard-coded Small Zoom Lights
         for i in range(40):
             small_lights[i] -= rgbdec
             if i % 10 == small_zoom:
@@ -434,10 +456,15 @@ while True:
                 small_lights[i] = 0
             cmdr_rgb[96 + i][0] = max(cmdr_rgb[96 + i][0], small_lights[i])
             cmdr_rgb[96 + i][2] = max(cmdr_rgb[96 + i][2], small_lights[i])
-            if i < 30 and i % 2 == 0:
-                small_polaris = int(i / 2)
-                polaris_rgb[small_polaris][0] = polaris_rgb[small_polaris][1] = polaris_rgb[small_polaris][2] = max(
-                    small_lights[i], small_lights[i + 1])
+            if i < 30:
+                if 0 < i < 9:
+                    small_stand = (9 - i) % 8 + 1
+                    stand_rgb[small_stand][0] = stand_rgb[small_stand][1] = stand_rgb[small_stand][2] = small_lights[i]
+                if i % 2 == 0:
+                    small_polaris = int(i / 2)
+                    polaris_rgb[small_polaris][0] = polaris_rgb[small_polaris][1] = polaris_rgb[small_polaris][2] = max(
+                        small_lights[i], small_lights[i + 1])
+        stand_rgb[0][0] = stand_rgb[0][1] = stand_rgb[0][2] = small_lights[0 if small_incr == 1 else 9]
 
         prev = None
         slash = slashes
@@ -467,29 +494,45 @@ while True:
         icue.CorsairSetLedsColorsAsync(cmdr_amt, ctypes.cast(cmdr_led, ctypes.POINTER(CorsairLedColor)), None, None)
 
         # Calculate Polaris
-        if rings[0].value > 4:  # Red
+        if strips[1].value > 4:  # Red
             for i in range(polaris_amt):
-                polaris_rgb[i][0] = max(polaris_rgb[i][0], rings[0].light)
+                polaris_rgb[i][0] = max(polaris_rgb[i][0], strips[1].light)
         else:
             for i in range(polaris_amt):
-                polaris_rgb[i][2] = max(polaris_rgb[i][2], rings[0].light)
+                polaris_rgb[i][2] = max(polaris_rgb[i][2], strips[1].light)
         for i in range(polaris_amt):
             polaris_led[i] = CorsairLedColor(polaris_pos[i], int(polaris_rgb[i][0]), int(polaris_rgb[i][1]),
                                              int(polaris_rgb[i][2]))
         icue.CorsairSetLedsColorsAsync(polaris_amt, ctypes.cast(polaris_led, ctypes.POINTER(CorsairLedColor)), None,
                                        None)
 
+        # Calculate Stand
+        if rings[0].value > 4:  # Red
+            stand_rgb[0][0] = max(stand_rgb[0][0], rings[0].light)
+        else:
+            stand_rgb[0][2] = max(stand_rgb[0][2], rings[0].light)
+        if strips[0].value > 4:  # Red
+            for i in range(1, stand_amt, 1):
+                stand_rgb[i][0] = max(stand_rgb[i][0], strips[0].light)
+        else:
+            for i in range(1, stand_amt, 1):
+                stand_rgb[i][2] = max(stand_rgb[i][2], strips[0].light)
+        for i in range(stand_amt):
+            stand_led[i] = CorsairLedColor(stand_pos[i], int(stand_rgb[i][0]), int(stand_rgb[i][1]),
+                                           int(stand_rgb[i][2]))
+        icue.CorsairSetLedsColorsAsync(stand_amt, ctypes.cast(stand_led, ctypes.POINTER(CorsairLedColor)), None, None)
+
         # Calculate Void
-        # for i in range(void_amt):
-        #     if rings[2 - i].value > 4:  # Red
-        #         void_rgb[i][0] = rings[2 - i].light
-        #         void_rgb[i][2] = 0
-        #     else:
-        #         void_rgb[i][0] = 0
-        #         void_rgb[i][2] = rings[2 - i].light
-        #     void_led[i] = CorsairLedColor(void.pLedPosition[i].ledId, int(void_rgb[i][0]), int(void_rgb[i][1]),
-        #                                   int(void_rgb[i][2]))
-        # icue.CorsairSetLedsColorsAsync(void_amt, ctypes.cast(void_led, ctypes.POINTER(CorsairLedColor)), None, None)
+        void_rgb[1] = min(void_rgb[0], void_rgb[2])
+        if void_prev != void_rgb:
+            void_prev[0] = void_rgb[0]
+            void_prev[1] = void_rgb[1]
+            void_prev[2] = void_rgb[2]
+            for i in range(void_amt):
+                void_led[i] = CorsairLedColor(void.pLedPosition[i].ledId, int(void_rgb[0]), int(void_rgb[1]),
+                                              int(void_rgb[2]))
+            icue.CorsairSetLedsColorsAsync(void_amt, ctypes.cast(void_led, ctypes.POINTER(CorsairLedColor)), None, None)
+        void_rgb[0] = void_rgb[1] = void_rgb[2] = 0
 
         if use_serial and ser.out_waiting == 0:
             serout = int(rings[0].light) | 3
@@ -513,10 +556,14 @@ while True:
         polaris_rgb[i][0] = polaris_rgb[i][1] = polaris_rgb[i][2] = 0
         polaris_led[i] = CorsairLedColor(polaris.pLedPosition[i].ledId, 0, 0, 0)
     icue.CorsairSetLedsColorsAsync(polaris_amt, ctypes.cast(polaris_led, ctypes.POINTER(CorsairLedColor)), None, None)
-    # for i in range(void_amt):
-    #     void_rgb[i][0] = void_rgb[i][1] = void_rgb[i][2] = 0
-    #     void_led[i] = CorsairLedColor(void.pLedPosition[i].ledId, 0, 0, 0)
-    # icue.CorsairSetLedsColorsAsync(void_amt, ctypes.cast(void_led, ctypes.POINTER(CorsairLedColor)), None, None)
+    for i in range(stand_amt):
+        stand_rgb[i][0] = stand_rgb[i][1] = stand_rgb[i][2] = 0
+        stand_led[i] = CorsairLedColor(stand.pLedPosition[i].ledId, 0, 0, 0)
+    icue.CorsairSetLedsColorsAsync(stand_amt, ctypes.cast(stand_led, ctypes.POINTER(CorsairLedColor)), None, None)
+    for i in range(void_amt):
+        void_led[i] = CorsairLedColor(void.pLedPosition[i].ledId, 0, 0, 0)
+    icue.CorsairSetLedsColorsAsync(void_amt, ctypes.cast(void_led, ctypes.POINTER(CorsairLedColor)), None, None)
+
     # Set serial back.
     if use_serial:
         ser.write(bytes([32, 3]))
