@@ -200,7 +200,8 @@ void setup() {
   pinMode(PWR_PIN, OUTPUT);
   digitalWrite(PWR_PIN, LOW);
   pinMode(LED_BUILTIN, OUTPUT);
-  music();
+  delay(3000);
+  // music();
   while (digitalRead(TI_REC) == LOW); // Wait for voice recognizer chip to start up.
 }
 
