@@ -1,4 +1,4 @@
-![Cygnet](https://azurlane.koumakan.jp/Cygnet/Gallery#/media/File:CygnetKaiChibi.png "Cygnet")
+![Cygnet](https://azurlane.koumakan.jp/w/images/5/5f/CygnetKaiChibi.png "Cygnet")
 ----
 # Cygnet
 
